@@ -2,11 +2,6 @@ MIT License
 
 Copyright (c) 2026 Feifei Qiu
 
-This project is a derivative work. It incorporates and adapts material from:
-  - zarazhangrui/beautiful-html-templates (MIT) — Copyright (c) Zara Zhang Rui
-  - kunchenguid/lavish-axi (MIT) — Copyright (c) Kun Chen
-See the NOTICE file for details.
-
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
 in the Software without restriction, including without limitation the rights
@@ -24,3 +19,10 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+This project is a derivative work that incorporates and adapts MIT-licensed
+material from zarazhangrui/beautiful-html-templates (Copyright Zara Zhang Rui)
+and kunchenguid/lavish-axi (Copyright Kun Chen). See the NOTICE file for full
+attribution and upstream license notices.
