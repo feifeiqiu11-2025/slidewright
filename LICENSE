@@ -19,10 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-This project is a derivative work that incorporates and adapts MIT-licensed
-material from zarazhangrui/beautiful-html-templates (Copyright Zara Zhang Rui)
-and kunchenguid/lavish-axi (Copyright Kun Chen). See the NOTICE file for full
-attribution and upstream license notices.
