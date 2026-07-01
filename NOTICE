@@ -1,0 +1,34 @@
+slidewright
+Copyright (c) 2026 Feifei Qiu
+
+This product includes and adapts software from the following projects, each
+distributed under the MIT License. Their copyright and permission notices are
+retained below as required.
+
+================================================================================
+1. beautiful-html-templates
+   Author:  Zara Zhang Rui (https://github.com/zarazhangrui)
+   Source:  https://github.com/zarazhangrui/beautiful-html-templates
+   License: MIT
+
+   The slide-skill concept and the template design systems in
+   `bold-template-pack/` derive from this project. The pack's source index
+   (`bold-template-pack/selection-index.json`) records the upstream repo.
+================================================================================
+2. lavish-axi (Lavish Editor)
+   Author:  Kun Chen (https://github.com/kunchenguid)
+   Source:  https://github.com/kunchenguid/lavish-axi
+   License: MIT
+
+   The comment / annotate review loop — point at an element or selected text,
+   attach a note, and send structured feedback to the agent — is adapted from
+   Lavish Editor's annotation model. The implementation here is an independent,
+   zero-dependency, single-file re-expression of that idea (see
+   `comment-mode.html`); it does not include Lavish's CLI or server.
+================================================================================
+
+Each upstream project is licensed under the MIT License, which permits use,
+modification, and redistribution provided the copyright and permission notice
+are included. This NOTICE, together with the LICENSE file, fulfills that
+requirement. Full upstream license text is available at each project's
+repository linked above.

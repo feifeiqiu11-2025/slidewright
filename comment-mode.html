@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Comment / Annotate Mode — reference implementation</title>
+<!--
+  SELF-CONTAINED REFERENCE for the slidewright "comment mode" affordance.
+
+  Open this file in a browser to see it working, then lift the three marked
+  blocks (=== COMMENT MODE: CSS / HTML / JS ===) into any fixed-stage deck.
+
+  Integration contract — the deck must provide:
+    • an element  #deckStage           (the scaled 1920x1080 stage)
+    • a controller `deck` with:
+        - deck.slides   : array of .slide elements
+        - deck.show(i)  : jump to slide i (0-based)
+    • slides marked with class="slide"
+  It also expects an inline-edit controller `editor` with `editor.isActive`
+  and `editor.toggle()` so the two review modes stay mutually exclusive. If a
+  deck has no inline editor, delete the two `editor` references in cm.toggle()
+  and enterEdit().
+
+  Palette: this demo defines neutral tokens below. In a real deck, map the
+  comment-mode CSS variables (--cm-*) onto the deck's own design tokens so the
+  UI matches the brand. Nothing here is tied to any specific brand.
+-->
+<style>
+  /* ---- minimal deck scaffold (your real deck already has its own) ---- */
+  :root{
+    --ink:#1c1e24; --ink-soft:#565a66; --bg:#f6f5f2; --bg-hi:#fffffe;
+    --panel:#efede8; --line:rgba(30,32,40,.14);
+    --cm-accent:#3f8f5f;      /* comment mode = green, distinct from edit */
+    --cm-badge:#c9551f;       /* count badge accent */
+    --e:cubic-bezier(.2,.8,.2,1);
+    --font:"Georgia",serif; --font-ui:system-ui,-apple-system,"Segoe UI",sans-serif;
+  }
+  *{margin:0;box-sizing:border-box;}
+  html,body{width:100%;height:100%;overflow:hidden;background:#e7e5df;font-family:var(--font-ui);}
+  .deck-viewport{position:fixed;inset:0;display:grid;place-items:center;}
+  #deckStage{position:relative;width:1920px;height:1080px;transform-origin:top left;background:var(--bg);}
+  .slide{position:absolute;inset:0;padding:120px;display:flex;flex-direction:column;justify-content:center;
+    visibility:hidden;opacity:0;transition:opacity .4s var(--e);}
+  .slide.active{visibility:visible;opacity:1;}
+  .kicker{font-family:var(--font-ui);font-size:22px;letter-spacing:.2em;text-transform:uppercase;color:var(--cm-accent);}
+  .stitle{font-family:var(--font);font-size:86px;line-height:1.05;color:var(--ink);margin:20px 0 30px;max-width:1300px;}
+  .lead{font-size:34px;line-height:1.5;color:var(--ink-soft);max-width:1100px;}
+  .hint{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);font-family:var(--font-ui);
+    font-size:15px;color:var(--ink-soft);z-index:9000;}
+
+  /* ===================== COMMENT MODE: CSS ===================== */
+  .cm-toggle{position:fixed;top:18px;left:18px;width:46px;height:46px;border-radius:50%;
+    border:1px solid var(--line);background:var(--bg-hi);color:var(--ink);
+    display:grid;place-items:center;cursor:pointer;transition:opacity .3s ease;
+    z-index:10001;box-shadow:0 4px 14px rgba(20,20,20,.12);}
+  .cm-toggle.active{background:var(--cm-accent);border-color:var(--cm-accent);color:#fff;}
+  .cm-toggle svg{width:22px;height:22px;}
+  .cm-badge{position:absolute;top:-5px;right:-5px;min-width:18px;height:18px;padding:0 5px;
+    border-radius:9px;background:var(--cm-badge);color:#fff;font-size:11px;font-weight:700;
+    line-height:18px;text-align:center;display:none;font-family:var(--font-ui);}
+  .cm-badge.show{display:block;}
+
+  body.cm-on #deckStage,body.cm-on #deckStage *{cursor:crosshair;}
+  body.cm-on .cm-hover{outline:2px solid var(--cm-accent)!important;outline-offset:2px;border-radius:3px;}
+
+  .cm-card{position:fixed;z-index:10006;width:300px;max-width:calc(100vw - 24px);
+    background:var(--bg-hi);border:1px solid var(--cm-accent);border-radius:14px;
+    box-shadow:0 18px 50px rgba(20,20,20,.28);padding:14px;color:var(--ink);
+    font-family:var(--font-ui);font-size:14px;line-height:1.45;display:none;}
+  .cm-card.show{display:block;}
+  .cm-card .cm-h{font-weight:700;font-size:11px;letter-spacing:.05em;text-transform:uppercase;
+    color:var(--ink-soft);margin-bottom:7px;}
+  .cm-card .cm-ref{font-size:12px;color:var(--ink-soft);background:var(--panel);border-radius:8px;
+    padding:6px 9px;margin-bottom:9px;max-height:54px;overflow:auto;font-style:italic;}
+  .cm-card textarea{width:100%;min-height:74px;resize:vertical;border:1px solid var(--line);
+    border-radius:9px;background:var(--bg);color:var(--ink);padding:9px;font:inherit;}
+  .cm-card .cm-row{display:flex;gap:8px;justify-content:flex-end;margin-top:10px;}
+  .cm-btn{border:0;border-radius:9px;padding:8px 12px;font-family:var(--font-ui);font-size:13px;font-weight:700;cursor:pointer;}
+  .cm-btn.primary{background:var(--cm-accent);color:#fff;}
+  .cm-btn.ghost{background:var(--panel);color:var(--ink);}
+
+  .cm-panel{position:fixed;top:0;right:0;width:340px;max-width:90vw;height:100vh;z-index:10005;
+    background:var(--bg-hi);border-left:1px solid var(--line);box-shadow:-12px 0 40px rgba(20,20,20,.18);
+    transform:translateX(100%);transition:transform .3s var(--e);display:flex;flex-direction:column;
+    color:var(--ink);font-family:var(--font-ui);font-size:14px;line-height:1.45;}
+  .cm-panel.show{transform:translateX(0);}
+  .cm-panel header{padding:18px 18px 13px;border-bottom:1px solid var(--line);
+    display:flex;align-items:center;justify-content:space-between;}
+  .cm-panel header h3{margin:0;font-size:16px;}
+  .cm-list{flex:1;overflow:auto;padding:12px 14px;}
+  .cm-item{border:1px solid var(--line);border-radius:10px;padding:10px 11px;margin-bottom:10px;background:var(--bg);}
+  .cm-item .cm-del{float:right;border:0;background:none;color:var(--ink-soft);cursor:pointer;font-size:11px;text-decoration:underline;}
+  .cm-item .cm-meta{font-size:11px;font-weight:700;color:var(--cm-badge);text-transform:uppercase;letter-spacing:.04em;cursor:pointer;}
+  .cm-item .cm-quote{font-size:12px;color:var(--ink-soft);margin:5px 0;font-style:italic;}
+  .cm-item .cm-note{font-size:13px;}
+  .cm-empty{color:var(--ink-soft);text-align:center;padding:34px 14px;font-size:13px;line-height:1.6;}
+  .cm-foot{padding:12px 14px;border-top:1px solid var(--line);display:flex;gap:8px;}
+  .cm-foot .cm-btn{flex:1;padding:10px;}
+  .cm-foot .primary{background:var(--cm-badge);}
+</style>
+</head>
+<body>
+<div class="deck-viewport">
+  <main id="deckStage">
+    <section class="slide active">
+      <div class="kicker">01 — Demo</div>
+      <h1 class="stitle">Comment mode turns a deck into a review surface.</h1>
+      <p class="lead">Press <strong>C</strong> (or the button, top-left), then click any element or select text to leave a note.</p>
+    </section>
+    <section class="slide">
+      <div class="kicker">02 — How</div>
+      <h1 class="stitle">Point, don't retype.</h1>
+      <p class="lead">Each note captures the slide number, a CSS path, and the exact text you pointed at.</p>
+    </section>
+    <section class="slide">
+      <div class="kicker">03 — Handoff</div>
+      <h1 class="stitle">Copy for agent.</h1>
+      <p class="lead">All notes export as one structured Markdown bundle — paste it back to your coding agent.</p>
+    </section>
+  </main>
+</div>
+<div class="hint">← → to navigate · C to comment</div>
+
+<!-- ===================== COMMENT MODE: HTML ===================== -->
+<button class="cm-toggle" id="cmToggle" title="Comment mode (C)" aria-label="Comment mode">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+  <span class="cm-badge" id="cmBadge">0</span>
+</button>
+<div class="cm-card" id="cmCard">
+  <div class="cm-h" id="cmCardH">Comment</div>
+  <div class="cm-ref" id="cmRef"></div>
+  <textarea id="cmText" placeholder="What should change here?"></textarea>
+  <div class="cm-row">
+    <button class="cm-btn ghost" id="cmCancel">Cancel</button>
+    <button class="cm-btn primary" id="cmAdd">Add comment</button>
+  </div>
+</div>
+<aside class="cm-panel" id="cmPanel" aria-label="Comments">
+  <header><h3>Comments</h3><button class="cm-btn ghost" id="cmClose" style="padding:6px 10px;">Close</button></header>
+  <div class="cm-list" id="cmList"></div>
+  <div class="cm-foot">
+    <button class="cm-btn ghost" id="cmClear">Clear all</button>
+    <button class="cm-btn primary" id="cmCopy">Copy for agent</button>
+  </div>
+</aside>
+
+<script>
+  /* ---- minimal deck controller (your real deck already has one) ---- */
+  const deck = {
+    slides: [...document.querySelectorAll('.slide')], i: 0,
+    stage: document.getElementById('deckStage'),
+    scale(){ const f = Math.min(innerWidth/1920, innerHeight/1080);
+      this.stage.style.transform = `translate(${(innerWidth-1920*f)/2}px,${(innerHeight-1080*f)/2}px) scale(${f})`; },
+    show(n){ this.i = Math.max(0, Math.min(n, this.slides.length-1));
+      this.slides.forEach((s,k)=>s.classList.toggle('active', k===this.i)); }
+  };
+  deck.scale(); addEventListener('resize', ()=>deck.scale());
+  addEventListener('keydown', e=>{
+    if(e.target.tagName==='TEXTAREA'||e.target.tagName==='INPUT') return; // don't navigate while typing
+    if(e.key==='ArrowRight'||e.key===' ') deck.show(deck.i+1);
+    else if(e.key==='ArrowLeft') deck.show(deck.i-1);
+  });
+  /* This demo has no inline-edit mode; stub `editor` so comment mode's
+     mutual-exclusion references are harmless. In a real deck, delete this
+     stub and keep the deck's real `editor`. */
+  const editor = { isActive:false, toggle(){} };
+
+  /* ===================== COMMENT MODE: JS ===================== */
+  const esc=s=>String(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const stageEl=document.getElementById('deckStage');
+  const inUi=el=>!!(el&&el.closest&&el.closest('.cm-card,.cm-panel,.cm-toggle,.edit-toggle,.edit-hotzone'));
+
+  function cmSlideNo(el){const s=el.closest&&el.closest('.slide');return s?deck.slides.indexOf(s)+1:0;}
+  function cmClasses(el){return (typeof el.className==='string'?el.className.trim().split(/\s+/):[])
+    .filter(c=>c&&c!=='cm-hover');} // drop the transient hover-highlight class
+  function cmLabel(el){const cls=cmClasses(el).slice(0,2);return el.tagName.toLowerCase()+(cls.length?'.'+cls.join('.'):'');}
+  function cmPath(el){const parts=[];let n=el;
+    while(n&&n.nodeType===1&&!(n.classList&&n.classList.contains('slide'))&&parts.length<4){
+      if(n.id){parts.unshift('#'+n.id);break;}
+      let p=n.tagName.toLowerCase();
+      const c0=cmClasses(n)[0];const cls=c0?'.'+c0:'';
+      p+=cls;
+      const sibs=n.parentElement?[...n.parentElement.children].filter(c=>c.tagName===n.tagName):[];
+      if(sibs.length>1)p+=':nth-of-type('+(sibs.indexOf(n)+1)+')';
+      parts.unshift(p);n=n.parentElement;}
+    return parts.join(' > ');}
+
+  const cm={
+    on:false,key:'slidewright-comments-v1',items:[],pending:null,
+    el(id){return document.getElementById(id);},
+    toggle(){this.on=!this.on;
+      if(this.on&&editor.isActive)editor.toggle();
+      document.body.classList.toggle('cm-on',this.on);
+      this.el('cmToggle').classList.toggle('active',this.on);
+      this.el('cmPanel').classList.toggle('show',this.on);
+      if(!this.on)this.closeCard();},
+    openCard(target,kind,text,x,y){
+      this.pending={slide:cmSlideNo(target),kind,selector:cmPath(target),label:cmLabel(target),text:(text||'').slice(0,200)};
+      this.el('cmCardH').textContent=(kind==='text'?'Comment on text':'Comment on element')+' · Slide '+this.pending.slide;
+      this.el('cmRef').textContent=(text||'').slice(0,160)||'(no text)';
+      const ta=this.el('cmText');ta.value='';
+      const card=this.el('cmCard');card.classList.add('show');
+      const cw=320,ch=250;
+      card.style.left=Math.max(12,Math.min((x||120)+12,innerWidth-cw))+'px';
+      card.style.top=Math.max(12,Math.min((y||120)+12,innerHeight-ch))+'px';
+      ta.focus();},
+    closeCard(){this.el('cmCard').classList.remove('show');this.pending=null;},
+    commit(){const note=this.el('cmText').value.trim();
+      if(!note||!this.pending){this.closeCard();return;}
+      this.items.push({id:Date.now(),...this.pending,note});this.save();this.render();this.closeCard();},
+    remove(id){this.items=this.items.filter(it=>it.id!==id);this.save();this.render();},
+    clearAll(){if(this.items.length&&confirm('Delete all comments?')){this.items=[];this.save();this.render();}},
+    render(){const n=this.items.length,badge=this.el('cmBadge');
+      badge.textContent=n;badge.classList.toggle('show',n>0);
+      const list=this.el('cmList');
+      if(!n){list.innerHTML='<div class="cm-empty">No comments yet.<br>Turn on comment mode, then click any text or element on a slide to leave a note.</div>';return;}
+      list.innerHTML=this.items.map(it=>'<div class="cm-item">'
+        +'<button class="cm-del" data-del="'+it.id+'">delete</button>'
+        +'<div class="cm-meta" data-jump="'+it.slide+'">Slide '+it.slide+' · '+esc(it.label)+'</div>'
+        +(it.text?'<div class="cm-quote">“'+esc(it.text)+'”</div>':'')
+        +'<div class="cm-note">'+esc(it.note)+'</div></div>').join('');},
+    copy(){if(!this.items.length)return;
+      const lines=['# Deck feedback ('+this.items.length+' comment'+(this.items.length>1?'s':'')+')',''];
+      const by={};this.items.forEach(it=>{(by[it.slide]=by[it.slide]||[]).push(it);});
+      Object.keys(by).sort((a,b)=>a-b).forEach(s=>{lines.push('## Slide '+s);
+        by[s].forEach(it=>{lines.push('- **'+it.label+'**  `'+it.selector+'`');
+          if(it.text)lines.push('  - '+(it.kind==='text'?'Selected text':'Current text')+': "'+it.text+'"');
+          lines.push('  - Change: '+it.note);});lines.push('');});
+      const out=lines.join('\n');
+      const done=()=>this.flash('Copied for agent');
+      if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(out).then(done).catch(()=>this.fallback(out));
+      else this.fallback(out);},
+    fallback(out){const ta=document.createElement('textarea');ta.value=out;document.body.appendChild(ta);
+      ta.select();try{document.execCommand('copy');this.flash('Copied for agent');}catch(e){prompt('Copy this feedback:',out);}ta.remove();},
+    flash(msg){const btn=this.el('cmCopy'),old=btn.textContent;btn.textContent=msg;setTimeout(()=>btn.textContent=old,1400);},
+    save(){try{localStorage.setItem(this.key,JSON.stringify(this.items));}catch(e){}},
+    load(){try{this.items=JSON.parse(localStorage.getItem(this.key)||'[]')||[];}catch(e){this.items=[];}},
+    init(){this.load();this.render();
+      this.el('cmToggle').addEventListener('click',()=>this.toggle());
+      this.el('cmClose').addEventListener('click',()=>this.toggle());
+      this.el('cmAdd').addEventListener('click',()=>this.commit());
+      this.el('cmCancel').addEventListener('click',()=>this.closeCard());
+      this.el('cmCopy').addEventListener('click',()=>this.copy());
+      this.el('cmClear').addEventListener('click',()=>this.clearAll());
+      this.el('cmText').addEventListener('keydown',e=>{
+        if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();this.commit();}
+        if(e.key==='Escape'){e.preventDefault();this.closeCard();}});
+      this.el('cmList').addEventListener('click',e=>{
+        const del=e.target.getAttribute('data-del');if(del){this.remove(Number(del));return;}
+        const jump=e.target.getAttribute('data-jump');if(jump){deck.show(Number(jump)-1);}});}
+  };
+  cm.init();
+
+  // hover outline + capture clicks/selections while comment mode is on
+  let cmHover=null;
+  document.addEventListener('mouseover',e=>{if(!cm.on)return;const t=e.target;
+    if(inUi(t)||!stageEl.contains(t))return;
+    if(cmHover&&cmHover!==t)cmHover.classList.remove('cm-hover');cmHover=t;t.classList.add('cm-hover');});
+  document.addEventListener('mouseout',()=>{if(cmHover){cmHover.classList.remove('cm-hover');cmHover=null;}});
+  document.addEventListener('click',e=>{if(!cm.on)return;
+    if(inUi(e.target))return;
+    if(!stageEl.contains(e.target))return;
+    e.preventDefault();e.stopPropagation();
+    const sel=window.getSelection();
+    const selText=sel&&!sel.isCollapsed?sel.toString().trim().replace(/\s+/g,' '):'';
+    if(selText){const t=sel.anchorNode?(sel.anchorNode.nodeType===1?sel.anchorNode:sel.anchorNode.parentElement):e.target;
+      cm.openCard(t,'text',selText,e.clientX,e.clientY);}
+    else{const t=e.target;cm.openCard(t,'element',(t.innerText||t.textContent||'').trim().replace(/\s+/g,' '),e.clientX,e.clientY);}
+  },true);
+  addEventListener('keydown',e=>{
+    if((e.key==='c'||e.key==='C')&&!e.metaKey&&!e.ctrlKey&&!e.altKey
+       &&e.target.tagName!=='TEXTAREA'&&e.target.tagName!=='INPUT'
+       &&!(e.target.getAttribute&&e.target.getAttribute('contenteditable')==='true'))cm.toggle();
+    if(e.key==='Escape'&&cm.on){if(cm.pending)cm.closeCard();else cm.toggle();}});
+</script>
+</body>
+</html>
